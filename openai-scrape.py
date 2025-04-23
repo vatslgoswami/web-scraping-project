@@ -1,15 +1,15 @@
 from bs4 import BeautifulSoup
 import requests
-from transformers import AutoTokenizer
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
-import spacy
+from openai import OpenAI
+from dotenv import load_dotenv
 import re 
+import os
 
-nlp = spacy.load("en_core_web_sm")
-tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+load_dotenv()
+
+client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
 #function to extract the header and body text from each secondary article
 def extract_secondary_link(link):
@@ -24,7 +24,7 @@ def extract_secondary_link(link):
     return header, body
 
 #helper function to chunk the data into tokens of correct size so we can embed it 
-def sentence_chunker(text, sentences_per_chunk=2, overlap = 1):
+def naive_chunker(text, sentences_per_chunk=3, overlap = 1):
     sentences = re.split(r'(?<=[.?!]) +', text)
     chunks = []
     for i in range(0, len(sentences), sentences_per_chunk-overlap):
@@ -33,39 +33,25 @@ def sentence_chunker(text, sentences_per_chunk=2, overlap = 1):
             chunks.append(chunk)
     return chunks[:len(chunks)-3]
 
-def spacy_chunker(text, max_tokens=100):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(text)
-    chunks = []
-    current_chunk = ""
-    current_len = 0
-    for sent in doc.sents:
-        token_count = len(sent)
-        if current_len + token_count > max_tokens:
-            chunks.append(current_chunk.strip())
-            current_chunk = str(sent)
-            current_len = token_count
-        else:
-            current_chunk += " " + str(sent)
-            current_len += token_count
-
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-
-    return chunks
+def embed_texts_openai(texts, model="text-embedding-3-small"):
+    response = client.embeddings.create(
+        input = texts,
+        model = model
+    )
+    return [record.embedding for record in response.data]
 
 #function to chunk and return vector embeddings for each secondary article text
 def get_vector_embeddings(text):
-    chunks = sentence_chunker(text)
-    embeddings = model.encode(chunks, show_progress_bar=False)
+    chunks = naive_chunker(text)
+    embeddings = embed_texts_openai(chunks)
     embeddings_map = list(zip(chunks, embeddings))
     return embeddings_map
 
 #function that returns the top k chunks of text similar to a query (i.e. relevant data)
 def find_top_chunks(query, embeddings_map, top_k=3):
-    query_embedding = model.encode(query)
+    query_embedding = np.array(embed_texts_openai(query)).reshape(1, -1)
     chunk_texts, chunk_embeddings = zip(*embeddings_map)
-    similarities = cosine_similarity([query_embedding], chunk_embeddings)[0]
+    similarities = cosine_similarity(query_embedding, chunk_embeddings)[0]
     most_similar_indices = np.argsort(similarities)[-top_k:][::-1]
     print(most_similar_indices)
     top_chunks = [chunk_texts[i] for i in most_similar_indices]
@@ -146,7 +132,7 @@ def scrape_helper(link):
             print (f"ix) Total Investment (if any): Rs.{investment_amount[1].text} crores")
     print(f"-------------------------------------------")
     #c) Extract Information from all the secondary urls
-    secondary_links = all_info.find("div", class_ = "conflicts_summary").find_all('a')[0]
+    secondary_links = all_info.find("div", class_ = "conflicts_summary").find_all('a')[1]
     # for link in secondary_links:
     # print (f"c) Secondary links are:")
     # for index, link in enumerate(secondary_links):
@@ -157,10 +143,11 @@ def scrape_helper(link):
     print(f"Embedding info from secondary link: ${secondary_links['href']}")
     embeddings_map = get_vector_embeddings(body)
     print(laws_ans)
-    query = f"area of land affected: {area_affected}"
+    query = f"what are the demands of the affected community? {demand_ans}"
     top_chunks = find_top_chunks(query, embeddings_map, top_k=3)
     for index, chunk in enumerate(top_chunks):
         print(f"{index+1}: {chunk}\n")
+
     
 links = ["https://www.landconflictwatch.org/conflicts/handri-neeva-sujala-water-canal-project#", 
         #  "https://www.landconflictwatch.org/conflicts/kgp-kundli-ghaziabad-palwal-expressway#", 
