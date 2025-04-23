@@ -94,7 +94,6 @@ def find_relevant_segments(embeddings_map, queries):
         for index, chunk in enumerate(top_chunks):
             print(f"-> Found the following relevant info in secondary-link #{chunk[1]}: {chunk[0].strip()}\n")
 
-
 def scrape_helper(link):
     html_text = requests.get(link).text
     soup = BeautifulSoup(html_text, 'lxml')
@@ -179,9 +178,9 @@ def scrape_helper(link):
             final_answers["Total investment made"] = f"{investment_amount[1].text} crores"
     print(f"-------------------------------------------")
 
-    #c) Extract Information from all the secondary urls
+    #d) Extract Information from all the secondary urls
     article_summaries, embeddings_map = find_and_embed_all_secondary_links(soup)
-    print(f"c) 1) Summary of Each Secondary Link:")
+    print(f"d) 1) Summary of Each Secondary Link:")
     for index, summary in enumerate(article_summaries):
         print(f"Link #{index+1}: {summary}")
     print("")
@@ -199,6 +198,4 @@ def scrape_and_sort(links):
         scrape_helper(link)
         print("------------------------------------------------------")
 
-scrape_and_sort(links)
-
-#c) 
+scrape_and_sort(links) 
